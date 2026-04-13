@@ -1,0 +1,5 @@
+config t
+boot nxos bootflash:nxos64-cs.10.5.5.M.bin
+exit
+
+copy running-config startup-config
