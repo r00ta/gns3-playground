@@ -1,0 +1,86 @@
+hostname CSR-A
+
+! WAN interface
+interface GigabitEthernet1
+ description WAN
+ ip address 100.0.0.1 255.255.255.252
+ no shutdown
+
+! Fabric-facing interface
+interface GigabitEthernet2
+ description toFabric-SiteA
+ ip address 10.99.0.1 255.255.255.0
+ no shutdown
+
+! Loopback
+interface Loopback0
+ ip address 10.0.0.100 255.255.255.255
+
+! IPsec SVTI tunnel to Site B
+interface Tunnel100
+ description IPsec-to-CSR-B
+ ip address 172.16.100.1 255.255.255.252
+ ip mtu 1400
+ ip tcp adjust-mss 1360
+ tunnel source GigabitEthernet1
+ tunnel destination 100.0.0.2
+ tunnel mode ipsec ipv4
+ tunnel protection ipsec profile SITE-PROFILE
+ no shutdown
+
+! IKEv2
+crypto ikev2 proposal IKEV2-PROP
+ encryption aes-cbc-256
+ integrity sha256
+ group 14
+
+crypto ikev2 policy IKEV2-POL
+ proposal IKEV2-PROP
+
+crypto ikev2 keyring KEYRING
+ peer CSR-B
+  address 100.0.0.2
+  pre-shared-key MyStr0ngSecret!
+
+crypto ikev2 profile IKEV2-PROF
+ match identity remote address 100.0.0.2 255.255.255.255
+ authentication remote pre-share
+ authentication local pre-share
+ keyring local KEYRING
+
+crypto ipsec transform-set TS esp-aes 256 esp-sha256-hmac
+ mode tunnel
+
+crypto ipsec profile SITE-PROFILE
+ set transform-set TS
+ set ikev2-profile IKEV2-PROF
+
+! OSPF underlay — advertise loopback, fabric link, and tunnel link
+router ospf 1
+ router-id 10.0.0.100
+ network 10.0.0.100 0.0.0.0 area 0
+ network 10.99.0.0 0.0.0.255 area 0
+ network 172.16.100.0 0.0.0.3 area 0
+
+! BGP EVPN — peer with Site A spines and Site B spines
+router bgp 65000
+ bgp router-id 10.0.0.100
+ neighbor 10.0.0.1 remote-as 65000
+ neighbor 10.0.0.1 update-source Loopback0
+ neighbor 10.0.0.2 remote-as 65000
+ neighbor 10.0.0.2 update-source Loopback0
+ neighbor 10.0.0.201 remote-as 65000
+ neighbor 10.0.0.201 update-source Loopback0
+ neighbor 10.0.0.202 remote-as 65000
+ neighbor 10.0.0.202 update-source Loopback0
+ !
+ address-family l2vpn evpn
+  neighbor 10.0.0.1 activate
+  neighbor 10.0.0.1 send-community extended
+  neighbor 10.0.0.2 activate
+  neighbor 10.0.0.2 send-community extended
+  neighbor 10.0.0.201 activate
+  neighbor 10.0.0.201 send-community extended
+  neighbor 10.0.0.202 activate
+  neighbor 10.0.0.202 send-community extended
+ exit-address-family
