@@ -1,0 +1,53 @@
+# interface
+hostname SPINE-A
+
+interface Ethernet1/1-64
+ shutdown
+
+interface loopback0
+ ip address 10.0.0.1/32
+
+interface Ethernet1/1
+ description to-LEAF-A
+ no switchport
+ ip address 10.1.1.1/24
+ no shutdown
+
+interface Ethernet1/9
+ description to-CSR-A-Gi2
+ no switchport
+ ip address 10.99.0.2/24
+ no shutdown
+
+# ospf
+feature ospf
+
+router ospf UNDERLAY
+interface Ethernet1/1, Ethernet1/9
+ mtu 9150
+ ip ospf network point-to-point
+ ip router ospf UNDERLAY area 0
+
+interface loopback0
+ ip router ospf UNDERLAY area 0
+
+# bgp
+feature bgp
+nv overlay evpn
+
+router bgp 65000
+ router-id 10.0.0.1
+ neighbor 10.0.0.11
+  description to-LEAF-A
+  remote-as 65000
+  update-source loopback0
+  address-family l2vpn evpn
+   send-community extended
+   route-reflector-client
+ neighbor 10.0.0.100
+  description to-CSR-A
+  remote-as 65000
+  update-source loopback0
+  address-family l2vpn evpn
+   send-community extended
+   route-reflector-client

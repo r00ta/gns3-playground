@@ -1,0 +1,94 @@
+hostname CSR-B
+
+! --- Loopback ---
+interface Loopback0
+ ip address 10.0.0.200 255.255.255.255
+ ip ospf 1 area 0
+
+! --- WAN link to CSR-A (Gi1 <-> Gi1) ---
+interface GigabitEthernet1
+ description WAN-to-CSR-A
+ ip address 100.0.0.2 255.255.255.252
+ negotiation auto
+ no shutdown
+
+! --- Fabric link to SPINE-B Ethernet1/9 ---
+interface GigabitEthernet2
+ description to-SPINE-B-Eth1/9
+ ip address 10.99.1.1 255.255.255.0
+ ip ospf 1 area 0
+ ip ospf network point-to-point
+ mtu 9000
+ negotiation auto
+ no shutdown
+
+! ============================
+! IPsec (IKEv2 + SVTI)
+! ============================
+
+crypto ikev2 proposal PROP-IKEV2
+ encryption aes-cbc-256
+ integrity sha256
+ group 14
+
+crypto ikev2 policy POL-IKEV2
+ proposal PROP-IKEV2
+
+crypto ikev2 keyring KR
+ peer CSR-A
+  address 100.0.0.1
+  pre-shared-key Cisco123!
+
+crypto ikev2 profile PROF-IKEV2
+ match identity remote address 100.0.0.1 255.255.255.255
+ authentication remote pre-share
+ authentication local pre-share
+ keyring local KR
+
+crypto ipsec transform-set IPSEC-TS esp-aes 256 esp-sha256-hmac
+ mode tunnel
+
+crypto ipsec profile IPSEC-PROF
+ set transform-set IPSEC-TS
+ set ikev2-profile PROF-IKEV2
+
+! --- IPsec SVTI Tunnel ---
+interface Tunnel100
+ description IPsec-SVTI-to-CSR-A
+ ip address 172.16.100.2 255.255.255.252
+ ip mtu 1400
+ ip tcp adjust-mss 1360
+ ip ospf 1 area 0
+ ip ospf network point-to-point
+ tunnel source GigabitEthernet1
+ tunnel mode ipsec ipv4
+ tunnel destination 100.0.0.1
+ tunnel protection ipsec profile IPSEC-PROF
+
+! ============================
+! OSPF
+! ============================
+router ospf 1
+ router-id 10.0.0.200
+
+! ============================
+! BGP – L2VPN EVPN route reflector
+! ============================
+router bgp 65000
+ bgp router-id 10.0.0.200
+ bgp log-neighbor-changes
+ no bgp default ipv4-unicast
+ neighbor 10.0.0.201 remote-as 65000
+ neighbor 10.0.0.201 update-source Loopback0
+ neighbor 10.0.0.201 description to-SPINE-B
+ neighbor 10.0.0.100 remote-as 65000
+ neighbor 10.0.0.100 update-source Loopback0
+ neighbor 10.0.0.100 description to-CSR-A
+ !
+ address-family l2vpn evpn
+  neighbor 10.0.0.201 activate
+  neighbor 10.0.0.201 send-community extended
+  neighbor 10.0.0.201 route-reflector-client
+  neighbor 10.0.0.100 activate
+  neighbor 10.0.0.100 send-community extended
+  neighbor 10.0.0.100 route-reflector-client
